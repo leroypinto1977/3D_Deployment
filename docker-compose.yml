@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        GDRIVE_LINK: "${GDRIVE_LINK}"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/Blender/output
+    tty: true
