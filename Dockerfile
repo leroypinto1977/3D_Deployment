@@ -1,49 +1,47 @@
-# Use Windows Server Core base image with Python (you may adjust tag as per availability)
-FROM mcr.microsoft.com/windows/servercore:ltsc2022
+# Use Ubuntu as the base image
+FROM ubuntu:22.04
 
-SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';"]
+# Set non-interactive for apt
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Build argument for Google Drive link
 ARG GDRIVE_LINK
 
-# Install Chocolatey for package management
-RUN Set-ExecutionPolicy Bypass -Scope Process -Force; `
-    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3-pip \
+    curl \
+    unzip \
+    wget \
+    && apt-get clean
 
-# Install Python3 and unzip, curl
-RUN choco install python --version=3.11.4 -y; `
-    choco install 7zip -y; `
-    choco install curl -y; `
-    refreshenv
+# Symlink python3.11 as default python and pip
+RUN ln -s /usr/bin/python3.11 /usr/bin/python && ln -s /usr/bin/pip3 /usr/bin/pip
 
-# Add Python to PATH
-ENV PATH="C:\\Python311;C:\\Python311\\Scripts;${PATH}"
-
+# Set working directory
 WORKDIR /app
 
-# Download gdown to download from Google Drive (install via pip)
-RUN python -m pip install --upgrade pip
-RUN python -m pip install gdown pm2
+# Install Python packages
+RUN pip install --upgrade pip
+RUN pip install gdown pm2
 
-# Download zip from Google Drive and extract it
-RUN powershell -Command `
-    $link = '${env:GDRIVE_LINK}'; `
-    if (-not $link) { throw 'GDRIVE_LINK build arg missing!'; } `
-    $fileId = ($link -split '/')[5]; `
-    Write-Host "Extracted File ID: $fileId"; `
-    python -m gdown --id $fileId -O project.zip; `
-    7z x project.zip -oC:\\app -y; `
-    Remove-Item project.zip
+# Download zip from Google Drive and extract
+RUN if [ -z "$GDRIVE_LINK" ]; then echo "GDRIVE_LINK build arg missing!" && exit 1; fi && \
+    FILE_ID=$(echo "$GDRIVE_LINK" | cut -d'/' -f6) && \
+    echo "Extracted File ID: $FILE_ID" && \
+    gdown --id "$FILE_ID" -O project.zip && \
+    unzip project.zip -d /app && \
+    rm project.zip
 
-# Install project requirements if requirements.txt exists in /app
-RUN if (Test-Path .\\requirements.txt) { python -m pip install -r requirements.txt }
+# Install project requirements if requirements.txt exists
+RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-# Create input and output folders if not exist
-RUN New-Item -ItemType Directory -Path .\\input -ErrorAction SilentlyContinue; `
-    New-Item -ItemType Directory -Path .\\Blender\\output -Force
+# Create input and output folders
+RUN mkdir -p /app/input /app/Blender/output
 
 # Expose Flask port
 EXPOSE 5000
 
-# Run the docker_api.py using pm2 (pm2 is installed via pip above)
+# Start using pm2
 CMD ["pm2", "start", "docker_api.py", "--interpreter", "python", "--no-daemon"]
